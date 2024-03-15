@@ -1,68 +1,101 @@
 #include <Arduino.h>
+#include <pitches.h>
 
-const int PIN_LED_RED = 4;    // The Number of the red LED pin.
-const int PIN_LED_GREEN = 5;  // The Number of the green LED pin.
-const int PIN_LED_BLUE = 6;   // The Number of the blue LED pin.
-const int PIN_LED_YELLOW = 7; // The Number of the yellow LED pin.
-const int PIN_BUTTON_1 = 8;   // The number of the button 1 (KEY1) pin.
-const int PIN_BUTTON_2 = 9;   // The number of the button 2 (KEY2) pin.
+struct ButtonState {
+    byte pin;
+    byte prevState;
+    byte state;
+};
 
-int buttonArray[4] = {0,0,0,0};  // Initialize array to hold button pins
-unsigned int arrayIndex = 0;       // Track the index for adding elements
+const int PIN_LED_RED = 4;
+const int PIN_LED_GREEN = 5;
+const int PIN_LED_BLUE = 6;
+const int PIN_LED_YELLOW = 7;
+const int PIN_BUTTON_1 = 8;
+const int PIN_BUTTON_2 = 9;
+const int PIN_BUZZER = 3;
+
+int tones[4] = {NOTE_C4, NOTE_G3, NOTE_C4, NOTE_G3};
+int toneAnswers[4] = {0, 0, 0, 0};
+unsigned int arrayIndex = 0;
 
 const int interval = 100;
 unsigned int prevMillis = 0;
 
-byte prevButtonState = HIGH;
+ButtonState buttonStates[2] = {{PIN_BUTTON_1, HIGH, HIGH}, {PIN_BUTTON_2, HIGH, HIGH}};
 
-void readButton(int BUTTON_PIN) {
-    const byte buttonState = digitalRead(BUTTON_PIN);
+bool shouldBuzz = true;
 
-    if (buttonState == prevButtonState) return;
-    if (buttonArray[3] != 0) return;
+void readButtons() {
+    for (int i = 0; i < 2; i++) {
+        ButtonState& button = buttonStates[i];
+        byte currentState = digitalRead(button.pin);
 
-    Serial.println(BUTTON_PIN == PIN_BUTTON_1 ? PIN_LED_RED : PIN_LED_GREEN);
-    buttonArray[arrayIndex] = BUTTON_PIN == PIN_BUTTON_1 ? PIN_LED_RED : PIN_LED_GREEN;
-    arrayIndex++; // Increment the index after adding a button pin
-    
-    Serial.println("array:");
-    for (unsigned int i = 0; i < arrayIndex; i++) {
-        Serial.println(buttonArray[i]);
+        if (currentState != button.prevState) {
+            button.prevState = currentState;
+            button.state = currentState;
+
+            byte newState = digitalRead(button.pin);
+            if (newState == button.state) {
+                // Only register a button press if the button was previously in a LOW state (pressed)
+                if (button.state == LOW) {
+                    toneAnswers[arrayIndex] = button.pin == PIN_BUTTON_2 ? NOTE_C4 : NOTE_G3;
+                    arrayIndex++;
+                }
+            }
+        }
     }
 }
 
-void playLeds() {
-    for (unsigned int i = 0; i < arrayIndex; i++) {
-        digitalWrite(buttonArray[i], HIGH);
-        delay(500);
-        digitalWrite(buttonArray[i], LOW);
-        delay(500);
+void checkAnswers() {
+    bool correct = true;
+
+    for (unsigned int i = 0; i < sizeof(tones) / sizeof(tones[0]); i++) {
+        if (toneAnswers[i] != tones[i]) {
+            correct = false;
+            break;
+        }
     }
 
-    memset(buttonArray, 0, sizeof(buttonArray));
+    if (correct) {
+        Serial.println("Congratulations! You got it right!");
+    } else {
+        Serial.println("Oops! Wrong sequence. Try again!");
+    }
+
     arrayIndex = 0;
+    memset(toneAnswers, 0, sizeof(toneAnswers));
 }
 
 void setup() {
     Serial.begin(9600);
-    
+
     pinMode(PIN_LED_RED, OUTPUT);
     pinMode(PIN_LED_GREEN, OUTPUT);
-
     pinMode(PIN_BUTTON_1, INPUT_PULLUP);
     pinMode(PIN_BUTTON_2, INPUT_PULLUP);
+    pinMode(PIN_BUZZER, OUTPUT);
+
+    Serial.println("Left: high tone || Right: low tone");
 }
 
 void loop() {
     const unsigned currentMillis = millis();
 
     if (currentMillis - prevMillis >= interval) {
-        readButton(PIN_BUTTON_1);
-        readButton(PIN_BUTTON_2);
+        readButtons();
         prevMillis = currentMillis;
     }
 
-    if (buttonArray[3] != 0) {
-        playLeds();
+    if (shouldBuzz) {
+        shouldBuzz = false;
+        for (unsigned int i = 0; i < sizeof(tones) / sizeof(tones[0]); i++) {
+            tone(PIN_BUZZER, tones[i], 1000);
+            delay(1100);
+        }
+    }
+
+    if (toneAnswers[3] != 0) {
+        checkAnswers();
     }
 }
